@@ -106,8 +106,11 @@ void TaskDigits::initialize(o2::framework::InitContext& /*ctx*/)
   getObjectsManager()->setDefaultDrawOptions(mHistoHitMapNoiseFiltered.get(), "colz logz");
   getObjectsManager()->setDisplayHint(mHistoHitMapNoiseFiltered.get(), "colz logz");
 
-  mHistoTimeVsBCID = std::make_shared<TH2F>("TimeVsBCID", "TOF time vs BC ID;BC ID in orbit (~25 ns);time (ns)", mBinsBC, 0., mRangeMaxBC, mBinsTime, mRangeMinTime, mRangeMaxTime);
+  mHistoTimeVsBCID = std::make_shared<TH2F>("TimeVsBCID", "TOF time vs BC ID;BC ID in orbit (~25 ns);time - L/c (ps)", mBinsBC, 0., mRangeMaxBC, mBinsTime, -5000, 25000);
   getObjectsManager()->startPublishing(mHistoTimeVsBCID.get());
+
+  mHistoTime = std::make_shared<TH1F>("Time", "TOF time;time - L/c (ps)", 480, -12000, 12000);
+  getObjectsManager()->startPublishing(mHistoTime.get());
 
   mHistoOrbitVsCrate = std::make_shared<TProfile2D>("OrbitVsCrate", "TOF Orbits in TF vs Crate;Crate;Orbits in TF;Fraction", RawDataDecoder::ncrates, 0., RawDataDecoder::ncrates, mBinsOrbitPerTimeFrame, 0, mRangeMaxOrbitPerTimeFrame);
   getObjectsManager()->startPublishing(mHistoOrbitVsCrate.get());
@@ -180,9 +183,6 @@ void TaskDigits::initialize(o2::framework::InitContext& /*ctx*/)
   getObjectsManager()->startPublishing(mHitMultiplicityVsBCpro.get());
 
   // Time
-  mHistoTime = std::make_shared<TH1F>("Time/Integrated", "TOF hit time;Hit time (ns);Hits", mBinsTime, mRangeMinTime, mRangeMaxTime);
-  getObjectsManager()->startPublishing(mHistoTime.get());
-
   mHistoTimeIA = std::make_shared<TH1F>("Time/SectorIA", "TOF hit time - I/A side;Hit time (ns);Hits", mBinsTime, mRangeMinTime, mRangeMaxTime);
   getObjectsManager()->startPublishing(mHistoTimeIA.get());
 
@@ -389,14 +389,25 @@ void TaskDigits::monitorData(o2::framework::ProcessingContext& ctx)
       o2::tof::Geo::getPos(det, pos);
       float length = sqrt(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]);
 
-      if (mCalChannel) {                                           // calibration
+      if (mCalChannel) {                                             // calibration
         float timeTDCcorr = digit.getTDC() * o2::tof::Geo::TDCBIN; // in ps
-        timeTDCcorr -= mCalChannel->evalTimeSlewing(digit.getChannel(), 0.0);
+        timeTDCcorr -= mCalChannel->evalTimeSlewing(digit.getChannel(), digit.getTOT() * o2::tof::Geo::TOTBIN_NS);
         timeTDCcorr -= mLHCphase->getLHCphase(0);
-        timeTDCcorr -= length * 33.356410 - 1000;                                                                                                 // subract path (1ns margin)
+        timeTDCcorr -= length * 33.356410;                                                                                                        // subract path (1ns margin)
         bcCorrCable += int(o2::constants::lhc::LHCMaxBunches + timeTDCcorr * o2::tof::Geo::BC_TIME_INPS_INV) - o2::constants::lhc::LHCMaxBunches; // to truncate in the proper way
+        long bcShift = long(timeTDCcorr * o2::tof::Geo::BC_TIME_INPS_INV + 10.5) - 10;
+        timeTDCcorr -= bcShift * o2::tof::Geo::BC_TIME_INPS;
+        mHistoTimeVsBCID->Fill(row.mFirstIR.bc, timeTDCcorr);
+        mHistoTime->Fill(timeTDCcorr);
       } else {
-        bcCorrCable -= (o2::tof::Geo::getCableTimeShiftBin(crateECH, slotECH, chainECH, tdcECH) - digit.getTDC()) / 1024; // just cable length
+        int tdcCable = o2::tof::Geo::getCableTimeShiftBin(crateECH, slotECH, chainECH, tdcECH) - digit.getTDC();
+        float timeTDCcorr = (digit.getTDC() - tdcCable) * o2::tof::Geo::TDCBIN; // in ps
+        timeTDCcorr -= length * 33.356410;
+        bcCorrCable -= tdcCable / 1024; // just cable length
+        long bcShift = long(timeTDCcorr * o2::tof::Geo::BC_TIME_INPS_INV + 10.5) - 10;
+        timeTDCcorr -= bcShift * o2::tof::Geo::BC_TIME_INPS;
+        mHistoTimeVsBCID->Fill(row.mFirstIR.bc, timeTDCcorr);
+        mHistoTime->Fill(timeTDCcorr);
       }
 
       if (bcCorrCable < 0) {
@@ -416,8 +427,6 @@ void TaskDigits::monitorData(o2::framework::ProcessingContext& ctx)
       constexpr float TDCBIN_NS = o2::tof::Geo::TDCBIN * 0.001;
       tdc_time = (digit.getTDC() + bcCorr * 1024) * TDCBIN_NS;
       tot_time = digit.getTOT() * o2::tof::Geo::TOTBIN_NS;
-      mHistoTimeVsBCID->Fill(row.mFirstIR.bc, tdc_time);
-      mHistoTime->Fill(tdc_time);
       if (tot_time <= 0.f) {
         mHistoTimeOrphans->Fill(tdc_time);
         if (mFlagEnableOrphanPerChannel) {

@@ -136,7 +136,7 @@ class TaskDigits final : public TaskInterface
   std::shared_ptr<TProfile> mHitMultiplicityVsBCpro = nullptr;    /// TOF raw hit multiplicity per event vs BC (TProfile)
 
   // Time
-  std::shared_ptr<TH1F> mHistoTime = nullptr;        /// TOF hit time (ns)
+  std::shared_ptr<TH1F> mHistoTime = nullptr;        /// TOF hit time (ps)
   std::shared_ptr<TH1F> mHistoTimeIA = nullptr;      /// TOF hit time (ns) - I/A side
   std::shared_ptr<TH1F> mHistoTimeOA = nullptr;      /// TOF hit time (ns) - O/A side
   std::shared_ptr<TH1F> mHistoTimeIC = nullptr;      /// TOF hit time (ns) - I/C side
